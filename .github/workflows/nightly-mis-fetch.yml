@@ -1,0 +1,35 @@
+name: Nightly MIS Fetch
+
+on:
+  schedule:
+    - cron: '45 18 * * *'
+  workflow_dispatch:
+    inputs:
+      report_date:
+        description: 'Report date to fetch in YYYY-MM-DD format. Leave blank to fetch yesterday in IST.'
+        required: false
+        type: string
+
+jobs:
+  fetch-mis:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      REPORT_DATE: ${{ inputs.report_date }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Fetch MIS report and upsert Supabase
+        run: node scripts/fetch-mis-to-supabase.mjs

@@ -8,6 +8,7 @@ import type {
 } from '../types/dashboard'
 import { inputToDdmmyyyy } from '../utils/dateUtils'
 import { getStatus } from '../utils/statusUtils'
+import { supabase } from './supabaseClient'
 
 interface RawPayload {
   sourceUrl: string
@@ -28,6 +29,23 @@ interface OfficeMasterRecord {
   subDivision: string
   office: string
   officeId: string
+}
+
+interface DailyTransactionRow {
+  report_date: string
+  circle: string
+  region: string
+  division: string
+  sub_division: string | null
+  office_name: string
+  sol_id: string | null
+  rict_account_open: number
+  rict_deposit: number
+  rict_withdrawal: number
+  savings_bank_transaction: number
+  total_transaction: number
+  total_deposit_amount: number | string
+  total_withdrawal_amount: number | string
 }
 
 function toNumber(value: unknown): number {
@@ -57,6 +75,26 @@ function normalizeRecord(row: unknown[], officeMaster: Map<string, OfficeMasterR
     totalTransaction: toNumber(row[8]),
     totalDepositAmount: toNumber(row[9]),
     totalWithdrawalAmount: toNumber(row[10]),
+  }
+}
+
+function normalizeDbRecord(row: DailyTransactionRow): OfficeRecord {
+  const rictDeposit = Number(row.rict_deposit) || 0
+  const rictWithdrawal = Number(row.rict_withdrawal) || 0
+  return {
+    circle: row.circle,
+    region: row.region,
+    division: row.division,
+    subDivision: row.sub_division ?? '',
+    officeName: row.office_name,
+    solId: row.sol_id ?? '',
+    rictAccountOpen: Number(row.rict_account_open) || 0,
+    rictDeposit,
+    rictWithdrawal,
+    savingsBankTransaction: Number(row.savings_bank_transaction) || rictDeposit + rictWithdrawal,
+    totalTransaction: Number(row.total_transaction) || 0,
+    totalDepositAmount: Number(row.total_deposit_amount) || 0,
+    totalWithdrawalAmount: Number(row.total_withdrawal_amount) || 0,
   }
 }
 
@@ -150,6 +188,41 @@ async function fetchRawPayload(fromDate: string, toDate: string): Promise<RawPay
   throw new Error('Unable to load dashboard data')
 }
 
+async function fetchDbRecords(fromDate: string, toDate: string): Promise<OfficeRecord[] | null> {
+  if (!supabase) return null
+
+  const [fromDay, fromMonth, fromYear] = fromDate.split('-')
+  const [toDay, toMonth, toYear] = toDate.split('-')
+  const fromDbDate = `${fromYear}-${fromMonth}-${fromDay}`
+  const toDbDate = `${toYear}-${toMonth}-${toDay}`
+
+  const { data, error } = await supabase
+    .from('daily_office_transactions')
+    .select(`
+      report_date,
+      circle,
+      region,
+      division,
+      sub_division,
+      office_name,
+      sol_id,
+      rict_account_open,
+      rict_deposit,
+      rict_withdrawal,
+      savings_bank_transaction,
+      total_transaction,
+      total_deposit_amount,
+      total_withdrawal_amount
+    `)
+    .gte('report_date', fromDbDate)
+    .lte('report_date', toDbDate)
+    .order('division')
+    .order('office_name')
+
+  if (error) throw error
+  return (data as DailyTransactionRow[]).map(normalizeDbRecord)
+}
+
 async function fetchOfficeMaster(): Promise<OfficeMasterRecord[]> {
   const response = await fetch('/data/indore-region-master.json')
   if (!response.ok) return []
@@ -163,6 +236,30 @@ async function loadDataset(filters: FilterState): Promise<DashboardDataset> {
   const cacheKey = `${fromDate}_${toDate}`
   const cachedDataset = datasetCache.get(cacheKey)
   if (cachedDataset) return cachedDataset
+
+  const dbRecords = await fetchDbRecords(fromDate, toDate)
+  if (dbRecords) {
+    const divisions = Array.from(new Set(dbRecords.map((record) => record.division))).map((division) =>
+      summarizeDivision(
+        division,
+        dbRecords.filter((record) => record.division === division),
+      ),
+    )
+    const dataset = {
+      sourceUrl: 'Supabase daily_office_transactions',
+      circle: dbRecords[0]?.circle ?? 'Madhya Pradesh Circle',
+      region: dbRecords[0]?.region ?? 'Indore Region',
+      startDate: fromDate,
+      endDate: toDate,
+      collectedAt: new Date().toISOString(),
+      records: dbRecords,
+      divisions,
+      summary: summarize(dbRecords),
+      trend: buildTrend(dbRecords, fromDate),
+    }
+    datasetCache.set(cacheKey, dataset)
+    return dataset
+  }
 
   const [raw, masterRecords] = await Promise.all([fetchRawPayload(fromDate, toDate), fetchOfficeMaster()])
   const officeMaster = new Map(masterRecords.map((record) => [normalizeText(record.office), record]))
