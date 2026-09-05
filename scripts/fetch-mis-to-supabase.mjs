@@ -131,6 +131,15 @@ function normalizeText(value) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, '')
 }
 
+function uniqueBy(rows, getKey) {
+  const uniqueRows = new Map()
+  for (const row of rows) {
+    const key = getKey(row)
+    if (key) uniqueRows.set(key, row)
+  }
+  return Array.from(uniqueRows.values())
+}
+
 function parseRows(html, division, reportDate, officeMaster) {
   const table = html.match(/<table[^>]+id="example2"[^>]*>([\s\S]*?)<\/table>/i)?.[1] ?? ''
   return [...table.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)]
@@ -173,7 +182,7 @@ async function loadOfficeMaster() {
 }
 
 async function upsertOfficeMaster(records) {
-  const rows = records.map((record) => ({
+  const rows = uniqueBy(records.map((record) => ({
     office_id: record.officeId || null,
     office_name: record.office,
     normalized_office_name: normalizeText(record.office),
@@ -181,7 +190,9 @@ async function upsertOfficeMaster(records) {
     sub_division: record.subDivision,
     circle: 'Madhya Pradesh',
     region,
-  }))
+  })), (row) => row.normalized_office_name)
+
+  console.log(`Upserting ${rows.length} unique office master records from ${records.length} source records.`)
 
   for (let index = 0; index < rows.length; index += 500) {
     const batch = rows.slice(index, index + 500)
@@ -193,8 +204,10 @@ async function upsertOfficeMaster(records) {
 }
 
 async function upsertTransactions(rows) {
-  for (let index = 0; index < rows.length; index += 500) {
-    const batch = rows.slice(index, index + 500)
+  const uniqueRows = uniqueBy(rows, (row) => `${row.report_date}:${row.normalized_office_name}`)
+  console.log(`Upserting ${uniqueRows.length} unique transaction records from ${rows.length} fetched rows.`)
+  for (let index = 0; index < uniqueRows.length; index += 500) {
+    const batch = uniqueRows.slice(index, index + 500)
     const { error } = await supabase
       .from('daily_office_transactions')
       .upsert(batch, { onConflict: 'report_date,normalized_office_name' })
@@ -276,7 +289,7 @@ try {
   await upsertOfficeMaster(masterRecords)
   const officeMaster = new Map(masterRecords.map((record) => [normalizeText(record.office), record]))
   const rows = await fetchAllDivisionReports(misDate, dbDate, officeMaster)
-  recordCount = rows.length
+  recordCount = uniqueBy(rows, (row) => `${row.report_date}:${row.normalized_office_name}`).length
   await upsertTransactions(rows)
   await finishRun(runId, 'success', recordCount)
   console.log(`Fetched and stored ${recordCount} records for ${dbDate}.`)
