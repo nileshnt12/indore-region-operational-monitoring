@@ -140,6 +140,17 @@ function uniqueBy(rows, getKey) {
   return Array.from(uniqueRows.values())
 }
 
+function logSample(title, values, limit = 25) {
+  const uniqueValues = Array.from(new Set(values.filter(Boolean))).sort()
+  console.log(`${title}: ${uniqueValues.length}`)
+  uniqueValues.slice(0, limit).forEach((value, index) => {
+    console.log(`  ${index + 1}. ${value}`)
+  })
+  if (uniqueValues.length > limit) {
+    console.log(`  ... ${uniqueValues.length - limit} more`)
+  }
+}
+
 async function fetchAllRows(tableName, columns, orderColumns = []) {
   const pageSize = 1000
   const rows = []
@@ -176,6 +187,7 @@ function parseRows(html) {
       const rictDeposit = parseNumber(cells[3] ?? '')
       const rictWithdrawal = parseNumber(cells[4] ?? '')
       return {
+        office_name: officeName,
         normalized_office_name: normalizeText(officeName),
         savings_bank_accounts_opened: parseNumber(cells[2] ?? ''),
         savings_bank_transactions: rictDeposit + rictWithdrawal,
@@ -292,6 +304,16 @@ function buildDailyRows(masterRecords, misRows, reportDate) {
     })
   }
 
+  const masterNameLookup = new Map(masterRecords.map((office) => [normalizeText(office.office), office.office]))
+  const uniqueMisRows = uniqueBy(misRows, (row) => row.normalized_office_name)
+  const nonZeroMisRows = uniqueMisRows.filter((row) => row.savings_bank_accounts_opened > 0 || row.savings_bank_transactions > 0)
+  const unmatchedMisOfficeNames = uniqueMisRows
+    .filter((row) => !masterNameLookup.has(row.normalized_office_name))
+    .map((row) => row.office_name)
+  const unmatchedNonZeroMisOfficeNames = nonZeroMisRows
+    .filter((row) => !masterNameLookup.has(row.normalized_office_name))
+    .map((row) => row.office_name)
+
   const rows = masterRecords.map((office) => {
     const metrics = misLookup.get(normalizeText(office.office))
     return {
@@ -307,8 +329,20 @@ function buildDailyRows(masterRecords, misRows, reportDate) {
       fetched_at: new Date().toISOString(),
     }
   })
-  const matchedRows = rows.filter((row) => row.savings_bank_accounts_opened > 0 || row.savings_bank_transactions > 0).length
-  console.log(`Matched MIS values for ${matchedRows} of ${rows.length} master office rows.`)
+  const matchedOfficeNames = rows
+    .filter((row) => row.savings_bank_accounts_opened > 0 || row.savings_bank_transactions > 0)
+    .map((row) => row.office_name)
+  const masterOfficeNamesWithoutMis = rows
+    .filter((row) => !misLookup.has(normalizeText(row.office_name)))
+    .map((row) => row.office_name)
+
+  console.log(`Unique MIS office rows parsed: ${uniqueMisRows.length}`)
+  console.log(`Unique MIS office rows with non-zero savings metrics: ${nonZeroMisRows.length}`)
+  console.log(`Master office rows prepared: ${rows.length}`)
+  console.log(`Master office rows with matched non-zero MIS values: ${matchedOfficeNames.length}`)
+  logSample('MIS office names not found in office_master', unmatchedMisOfficeNames)
+  logSample('Non-zero MIS office names not found in office_master', unmatchedNonZeroMisOfficeNames)
+  logSample('Master office names not returned by MIS', masterOfficeNamesWithoutMis)
   return rows
 }
 
