@@ -7,7 +7,7 @@ as $$
 declare
   inserted_count integer;
 begin
-  truncate table public.office_master;
+  delete from public.office_master;
 
   insert into public.office_master (
     circle,

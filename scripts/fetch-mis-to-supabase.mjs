@@ -140,7 +140,7 @@ function uniqueBy(rows, getKey) {
   return Array.from(uniqueRows.values())
 }
 
-function parseRows(html, division, reportDate, officeMaster) {
+function parseRows(html) {
   const table = html.match(/<table[^>]+id="example2"[^>]*>([\s\S]*?)<\/table>/i)?.[1] ?? ''
   return [...table.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)]
     .map((row) => [...row[1].matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi)].map((cell) => stripTags(cell[1])))
@@ -150,17 +150,12 @@ function parseRows(html, division, reportDate, officeMaster) {
     })
     .map((cells) => {
       const officeName = cells[0] ?? ''
-      const matchedOffice = officeMaster.get(normalizeText(officeName))
       const rictDeposit = parseNumber(cells[3] ?? '')
       const rictWithdrawal = parseNumber(cells[4] ?? '')
       return {
-        report_date: reportDate,
-        office_name: matchedOffice?.office ?? officeName,
+        normalized_office_name: normalizeText(officeName),
         savings_bank_accounts_opened: parseNumber(cells[2] ?? ''),
         savings_bank_transactions: rictDeposit + rictWithdrawal,
-        pli_rpli_premium: 0,
-        speed_post_articles_booked: 0,
-        parcel_articles_booked: 0,
       }
     })
 }
@@ -168,13 +163,14 @@ function parseRows(html, division, reportDate, officeMaster) {
 async function loadOfficeMaster() {
   const { data, error } = await supabase
     .from('office_master')
-    .select('division, sub_division, office_name, office_id')
+    .select('id, division, sub_division, office_name, office_id')
     .order('division')
     .order('sub_division')
     .order('office_name')
 
   if (!error && data && data.length > 0) {
     return data.map((record) => ({
+      id: record.id,
       division: record.division,
       subDivision: record.sub_division,
       office: record.office_name,
@@ -188,11 +184,10 @@ async function loadOfficeMaster() {
 }
 
 async function upsertTransactions(rows) {
-  const uniqueRows = uniqueBy(rows, (row) => `${row.report_date}:${normalizeText(row.office_name)}`)
-  console.log(`Upserting ${uniqueRows.length} unique transaction records from ${rows.length} fetched rows.`)
-  for (let index = 0; index < uniqueRows.length; index += 500) {
-    const batch = uniqueRows.slice(index, index + 500)
-  const { error } = await supabase
+  console.log(`Upserting ${rows.length} daily transaction records.`)
+  for (let index = 0; index < rows.length; index += 500) {
+    const batch = rows.slice(index, index + 500)
+    const { error } = await supabase
       .from('daily_office_transactions')
       .upsert(batch, { onConflict: 'report_date,office_name' })
     if (error) throw error
@@ -222,7 +217,7 @@ async function finishRun(id, status, recordsFetched, errorMessage = null) {
   if (error) throw error
 }
 
-async function fetchAllDivisionReports(misDate, dbDate, officeMaster) {
+async function fetchAllDivisionReports(misDate) {
   const first = await getPage()
   let cookie = first.cookie
   let html = first.html
@@ -255,10 +250,39 @@ async function fetchAllDivisionReports(misDate, dbDate, officeMaster) {
     form.set(fieldNames.endDate, misDate)
     form.set('__EVENTTARGET', 'ctl00$ContentPlaceHolder1$ctl00')
     const reportHtml = await postForm(form, cookie)
-    rows.push(...parseRows(reportHtml, division, dbDate, officeMaster))
+    rows.push(...parseRows(reportHtml))
   }
 
   return rows
+}
+
+function buildDailyRows(masterRecords, misRows, reportDate) {
+  const misLookup = new Map()
+  for (const row of misRows) {
+    if (!row.normalized_office_name) continue
+    const existing = misLookup.get(row.normalized_office_name)
+    misLookup.set(row.normalized_office_name, {
+      normalized_office_name: row.normalized_office_name,
+      savings_bank_accounts_opened: (existing?.savings_bank_accounts_opened ?? 0) + row.savings_bank_accounts_opened,
+      savings_bank_transactions: (existing?.savings_bank_transactions ?? 0) + row.savings_bank_transactions,
+    })
+  }
+
+  return masterRecords.map((office) => {
+    const metrics = misLookup.get(normalizeText(office.office))
+    return {
+      report_date: reportDate,
+      office_master_id: office.id ?? null,
+      office_name: office.office,
+      savings_bank_accounts_opened: metrics?.savings_bank_accounts_opened ?? 0,
+      savings_bank_transactions: metrics?.savings_bank_transactions ?? 0,
+      pli_rpli_premium: 0,
+      speed_post_articles_booked: 0,
+      parcel_articles_booked: 0,
+      source: 'MIS',
+      fetched_at: new Date().toISOString(),
+    }
+  })
 }
 
 const reportDate = getReportDate()
@@ -270,12 +294,12 @@ let recordCount = 0
 try {
   runId = await createRun(dbDate)
   const masterRecords = await loadOfficeMaster()
-  const officeMaster = new Map(masterRecords.map((record) => [normalizeText(record.office), record]))
-  const rows = await fetchAllDivisionReports(misDate, dbDate, officeMaster)
-  recordCount = uniqueBy(rows, (row) => `${row.report_date}:${normalizeText(row.office_name)}`).length
+  const misRows = await fetchAllDivisionReports(misDate)
+  const rows = buildDailyRows(masterRecords, misRows, dbDate)
+  recordCount = rows.length
   await upsertTransactions(rows)
   await finishRun(runId, 'success', recordCount)
-  console.log(`Fetched and stored ${recordCount} records for ${dbDate}.`)
+  console.log(`Fetched ${misRows.length} MIS rows and stored ${recordCount} master office rows for ${dbDate}.`)
 } catch (error) {
   if (runId) {
     await finishRun(runId, 'failed', recordCount, error instanceof Error ? error.message : String(error))

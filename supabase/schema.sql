@@ -23,12 +23,15 @@ create table if not exists public.office_master (
 create table if not exists public.daily_office_transactions (
   id uuid primary key default gen_random_uuid(),
   report_date date not null,
+  office_master_id uuid references public.office_master(id) on delete set null,
   office_name text not null,
   savings_bank_accounts_opened integer not null default 0,
   savings_bank_transactions integer not null default 0,
   pli_rpli_premium numeric(14, 2) not null default 0,
   speed_post_articles_booked integer not null default 0,
   parcel_articles_booked integer not null default 0,
+  source text not null default 'MIS',
+  fetched_at timestamptz not null default now(),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint daily_office_transactions_report_office_key unique (report_date, office_name)
@@ -55,6 +58,9 @@ create index if not exists office_master_office_name_idx
 
 create index if not exists daily_office_transactions_report_date_idx
   on public.daily_office_transactions (report_date);
+
+create index if not exists daily_office_transactions_office_master_date_idx
+  on public.daily_office_transactions (office_master_id, report_date);
 
 create index if not exists daily_office_transactions_office_name_idx
   on public.daily_office_transactions (office_name);
@@ -110,7 +116,7 @@ as $$
 declare
   inserted_count integer;
 begin
-  truncate table public.office_master;
+  delete from public.office_master;
 
   insert into public.office_master (
     circle,
