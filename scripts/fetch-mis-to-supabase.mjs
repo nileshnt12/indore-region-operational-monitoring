@@ -141,15 +141,12 @@ function uniqueBy(rows, getKey) {
   return Array.from(uniqueRows.values())
 }
 
-function logMismatchNames(title, rows, getName, limit = 100) {
+function logMismatchNames(title, rows, getName) {
   const names = Array.from(new Set(rows.map(getName).filter(Boolean))).sort()
   console.log(`${title}: ${names.length}`)
-  names.slice(0, limit).forEach((name, index) => {
+  names.forEach((name, index) => {
     console.log(`  ${index + 1}. ${name}`)
   })
-  if (names.length > limit) {
-    console.log(`  ... ${names.length - limit} more in the Excel audit workbook`)
-  }
 }
 
 async function writeMismatchWorkbook(reportDate, misNotInMasterRows, masterNotInMisRows) {
