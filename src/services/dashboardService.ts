@@ -31,21 +31,21 @@ interface OfficeMasterRecord {
   officeId: string
 }
 
+interface OfficeMasterDbRow {
+  division: string
+  sub_division: string
+  office_name: string
+  office_id: string | null
+}
+
 interface DailyTransactionRow {
   report_date: string
-  circle: string
-  region: string
-  division: string
-  sub_division: string | null
   office_name: string
-  sol_id: string | null
-  rict_account_open: number
-  rict_deposit: number
-  rict_withdrawal: number
-  savings_bank_transaction: number
-  total_transaction: number
-  total_deposit_amount: number | string
-  total_withdrawal_amount: number | string
+  savings_bank_accounts_opened: number
+  savings_bank_transactions: number
+  pli_rpli_premium: number | string
+  speed_post_articles_booked: number
+  parcel_articles_booked: number
 }
 
 function toNumber(value: unknown): number {
@@ -78,23 +78,23 @@ function normalizeRecord(row: unknown[], officeMaster: Map<string, OfficeMasterR
   }
 }
 
-function normalizeDbRecord(row: DailyTransactionRow): OfficeRecord {
-  const rictDeposit = Number(row.rict_deposit) || 0
-  const rictWithdrawal = Number(row.rict_withdrawal) || 0
+function normalizeDbRecord(row: DailyTransactionRow, officeMaster: Map<string, OfficeMasterRecord>): OfficeRecord {
+  const matchedOffice = officeMaster.get(normalizeText(row.office_name))
+  const savingsBankTransactions = Number(row.savings_bank_transactions) || 0
   return {
-    circle: row.circle,
-    region: row.region,
-    division: row.division,
-    subDivision: row.sub_division ?? '',
+    circle: matchedOffice ? 'Madhya Pradesh Circle' : '',
+    region: matchedOffice ? 'Indore Region' : '',
+    division: matchedOffice?.division ?? '',
+    subDivision: matchedOffice?.subDivision ?? '',
     officeName: row.office_name,
-    solId: row.sol_id ?? '',
-    rictAccountOpen: Number(row.rict_account_open) || 0,
-    rictDeposit,
-    rictWithdrawal,
-    savingsBankTransaction: Number(row.savings_bank_transaction) || rictDeposit + rictWithdrawal,
-    totalTransaction: Number(row.total_transaction) || 0,
-    totalDepositAmount: Number(row.total_deposit_amount) || 0,
-    totalWithdrawalAmount: Number(row.total_withdrawal_amount) || 0,
+    solId: matchedOffice?.officeId ?? '',
+    rictAccountOpen: Number(row.savings_bank_accounts_opened) || 0,
+    rictDeposit: savingsBankTransactions,
+    rictWithdrawal: 0,
+    savingsBankTransaction: savingsBankTransactions,
+    totalTransaction: savingsBankTransactions,
+    totalDepositAmount: Number(row.pli_rpli_premium) || 0,
+    totalWithdrawalAmount: 0,
   }
 }
 
@@ -196,34 +196,48 @@ async function fetchDbRecords(fromDate: string, toDate: string): Promise<OfficeR
   const fromDbDate = `${fromYear}-${fromMonth}-${fromDay}`
   const toDbDate = `${toYear}-${toMonth}-${toDay}`
 
+  const masterRecords = await fetchOfficeMaster()
+  const officeMaster = new Map(masterRecords.map((record) => [normalizeText(record.office), record]))
   const { data, error } = await supabase
     .from('daily_office_transactions')
     .select(`
       report_date,
-      circle,
-      region,
-      division,
-      sub_division,
       office_name,
-      sol_id,
-      rict_account_open,
-      rict_deposit,
-      rict_withdrawal,
-      savings_bank_transaction,
-      total_transaction,
-      total_deposit_amount,
-      total_withdrawal_amount
+      savings_bank_accounts_opened,
+      savings_bank_transactions,
+      pli_rpli_premium,
+      speed_post_articles_booked,
+      parcel_articles_booked
     `)
     .gte('report_date', fromDbDate)
     .lte('report_date', toDbDate)
-    .order('division')
     .order('office_name')
 
   if (error) throw error
-  return (data as DailyTransactionRow[]).map(normalizeDbRecord)
+  return (data as DailyTransactionRow[])
+    .map((row) => normalizeDbRecord(row, officeMaster))
+    .filter((row) => row.division)
 }
 
 async function fetchOfficeMaster(): Promise<OfficeMasterRecord[]> {
+  if (supabase) {
+    const { data, error } = await supabase
+      .from('office_master')
+      .select('division, sub_division, office_name, office_id')
+      .order('division')
+      .order('sub_division')
+      .order('office_name')
+
+    if (!error && data && data.length > 0) {
+      return (data as OfficeMasterDbRow[]).map((record) => ({
+        division: record.division,
+        subDivision: record.sub_division,
+        office: record.office_name,
+        officeId: record.office_id ?? '',
+      }))
+    }
+  }
+
   const response = await fetch('/data/indore-region-master.json')
   if (!response.ok) return []
   const payload = (await response.json()) as OfficeMasterPayload

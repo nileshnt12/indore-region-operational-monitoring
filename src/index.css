@@ -263,20 +263,27 @@ select:disabled {
   padding: 18px 14px;
 }
 
-.sidebar-nav a {
+.sidebar-nav a,
+.sidebar-nav button {
   display: flex;
   align-items: center;
   gap: 14px;
   min-height: 46px;
+  width: 100%;
   padding: 0 28px;
+  border: 0;
   border-radius: 8px;
   color: rgba(255, 255, 255, 0.84);
+  background: transparent;
   font-weight: 800;
   text-decoration: none;
+  text-align: left;
 }
 
 .sidebar-nav a.active,
-.sidebar-nav a:hover {
+.sidebar-nav a:hover,
+.sidebar-nav button.active,
+.sidebar-nav button:hover {
   background: rgba(255, 255, 255, 0.14);
   color: #fff;
 }
@@ -767,6 +774,79 @@ tfoot th {
   height: 96px;
   text-align: center;
   color: var(--muted);
+}
+
+.master-panel {
+  padding: 20px;
+}
+
+.upload-zone {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  padding: 18px;
+  border: 1px dashed #d7b9ab;
+  border-radius: 10px;
+  background: #fffaf0;
+}
+
+.upload-icon {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  border-radius: 8px;
+  color: var(--primary);
+  background: #fff;
+}
+
+.upload-zone h3 {
+  margin: 0 0 5px;
+  color: var(--text);
+  font-size: 16px;
+}
+
+.upload-zone p,
+.upload-file-name,
+.upload-message {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.upload-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0 14px;
+  color: var(--text);
+  background: #fff;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.upload-button input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.upload-file-name,
+.upload-message,
+.master-actions {
+  margin-top: 14px;
+}
+
+.master-actions {
+  display: flex;
+  justify-content: flex-end;
 }
 
 .compact-table table {

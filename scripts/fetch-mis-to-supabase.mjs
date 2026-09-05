@@ -155,62 +155,46 @@ function parseRows(html, division, reportDate, officeMaster) {
       const rictWithdrawal = parseNumber(cells[4] ?? '')
       return {
         report_date: reportDate,
-        circle,
-        region,
-        division: matchedOffice?.division ?? division,
-        sub_division: matchedOffice?.subDivision ?? null,
         office_name: matchedOffice?.office ?? officeName,
-        normalized_office_name: normalizeText(matchedOffice?.office ?? officeName),
-        sol_id: cells[1] ?? '',
-        rict_account_open: parseNumber(cells[2] ?? ''),
-        rict_deposit: rictDeposit,
-        rict_withdrawal: rictWithdrawal,
-        savings_bank_transaction: rictDeposit + rictWithdrawal,
-        total_transaction: parseNumber(cells[5] ?? ''),
-        total_deposit_amount: parseNumber(cells[6] ?? ''),
-        total_withdrawal_amount: parseNumber(cells[7] ?? ''),
-        source_url: baseUrl,
-        fetched_at: new Date().toISOString(),
+        savings_bank_accounts_opened: parseNumber(cells[2] ?? ''),
+        savings_bank_transactions: rictDeposit + rictWithdrawal,
+        pli_rpli_premium: 0,
+        speed_post_articles_booked: 0,
+        parcel_articles_booked: 0,
       }
     })
 }
 
 async function loadOfficeMaster() {
+  const { data, error } = await supabase
+    .from('office_master')
+    .select('division, sub_division, office_name, office_id')
+    .order('division')
+    .order('sub_division')
+    .order('office_name')
+
+  if (!error && data && data.length > 0) {
+    return data.map((record) => ({
+      division: record.division,
+      subDivision: record.sub_division,
+      office: record.office_name,
+      officeId: record.office_id ?? '',
+    }))
+  }
+
   const file = await fs.readFile(path.join(process.cwd(), 'public', 'data', 'indore-region-master.json'), 'utf8')
   const payload = JSON.parse(file)
   return payload.records
 }
 
-async function upsertOfficeMaster(records) {
-  const rows = uniqueBy(records.map((record) => ({
-    office_id: record.officeId || null,
-    office_name: record.office,
-    normalized_office_name: normalizeText(record.office),
-    division: record.division,
-    sub_division: record.subDivision,
-    circle: 'Madhya Pradesh',
-    region,
-  })), (row) => row.normalized_office_name)
-
-  console.log(`Upserting ${rows.length} unique office master records from ${records.length} source records.`)
-
-  for (let index = 0; index < rows.length; index += 500) {
-    const batch = rows.slice(index, index + 500)
-    const { error } = await supabase
-      .from('office_master')
-      .upsert(batch, { onConflict: 'normalized_office_name' })
-    if (error) throw error
-  }
-}
-
 async function upsertTransactions(rows) {
-  const uniqueRows = uniqueBy(rows, (row) => `${row.report_date}:${row.normalized_office_name}`)
+  const uniqueRows = uniqueBy(rows, (row) => `${row.report_date}:${normalizeText(row.office_name)}`)
   console.log(`Upserting ${uniqueRows.length} unique transaction records from ${rows.length} fetched rows.`)
   for (let index = 0; index < uniqueRows.length; index += 500) {
     const batch = uniqueRows.slice(index, index + 500)
-    const { error } = await supabase
+  const { error } = await supabase
       .from('daily_office_transactions')
-      .upsert(batch, { onConflict: 'report_date,normalized_office_name' })
+      .upsert(batch, { onConflict: 'report_date,office_name' })
     if (error) throw error
   }
 }
@@ -286,10 +270,9 @@ let recordCount = 0
 try {
   runId = await createRun(dbDate)
   const masterRecords = await loadOfficeMaster()
-  await upsertOfficeMaster(masterRecords)
   const officeMaster = new Map(masterRecords.map((record) => [normalizeText(record.office), record]))
   const rows = await fetchAllDivisionReports(misDate, dbDate, officeMaster)
-  recordCount = uniqueBy(rows, (row) => `${row.report_date}:${row.normalized_office_name}`).length
+  recordCount = uniqueBy(rows, (row) => `${row.report_date}:${normalizeText(row.office_name)}`).length
   await upsertTransactions(rows)
   await finishRun(runId, 'success', recordCount)
   console.log(`Fetched and stored ${recordCount} records for ${dbDate}.`)

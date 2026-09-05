@@ -29,6 +29,36 @@ Required frontend environment variables:
 
 Use `.env.example` as the local template.
 
+## Office Master Upload
+
+The dashboard includes an admin screen named `Create/Update Master Data`.
+
+Accepted files:
+
+- `.xlsx`
+- `.xls`
+- `.csv`
+
+Excel files must contain a sheet named `Office_Master`. CSV files should contain the same columns directly.
+
+Required columns:
+
+- `Circle`
+- `Region`
+- `Division`
+- `Divisional Head`
+- `Divisional Head Mobile`
+- `Sub Division`
+- `Sub Divisional Head`
+- `Sub Divisional Head Mobile`
+- `Office Name`
+- `office_id`
+- `email ID`
+- `office_type_desc`
+- `pincode`
+
+Before using the upload screen, run `supabase/replace-office-master-rpc.sql` in the Supabase SQL editor. Uploading a file replaces the full `office_master` table with the newly uploaded rows.
+
 ## GitHub Actions
 
 The workflow is defined at `.github/workflows/nightly-mis-fetch.yml`.

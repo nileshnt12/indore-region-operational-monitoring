@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
-import { BarChart3, FileText, Home, LogOut, Search, ShieldCheck } from 'lucide-react'
+import { BarChart3, DatabaseZap, FileText, Home, LogOut, Search, ShieldCheck } from 'lucide-react'
 import { AttentionPanel } from '../components/AttentionPanel'
 import { Breadcrumb } from '../components/Breadcrumb'
 import { DataTable } from '../components/DataTable'
 import { EmptyState, ErrorState, LoadingSkeleton } from '../components/StateViews'
 import { Header } from '../components/Header'
+import { MasterDataUpload } from '../components/MasterDataUpload'
 import { ReportFilters } from '../components/ReportFilters'
 import { getDashboardData, getMasterData } from '../services/dashboardService'
 import type { DashboardDataset, FilterState } from '../types/dashboard'
@@ -19,6 +20,7 @@ interface DashboardProps {
 }
 
 export function Dashboard({ userId, onSignOut }: DashboardProps) {
+  const [activeView, setActiveView] = useState<'dashboard' | 'master-data'>('dashboard')
   const [filters, setFilters] = useState<FilterState>({
     fromDate: defaultReportDate,
     toDate: defaultReportDate,
@@ -105,11 +107,12 @@ export function Dashboard({ userId, onSignOut }: DashboardProps) {
           <strong>Operational Monitoring</strong>
         </div>
         <nav className="sidebar-nav" aria-label="Dashboard navigation">
-          <a className="active" href="#report"><Home size={17} /> Dashboard</a>
-          <a href="#filters"><Search size={17} /> Report Filters</a>
-          <a href="#report"><FileText size={17} /> Division Report</a>
-          <a href="#attention"><BarChart3 size={17} /> Attention Units</a>
-          <a href="#report"><ShieldCheck size={17} /> Admin View</a>
+          <button className={activeView === 'dashboard' ? 'active' : undefined} type="button" onClick={() => setActiveView('dashboard')}><Home size={17} /> Dashboard</button>
+          <button type="button" onClick={() => { setActiveView('dashboard'); document.getElementById('filters')?.scrollIntoView({ behavior: 'smooth' }) }}><Search size={17} /> Report Filters</button>
+          <button type="button" onClick={() => { setActiveView('dashboard'); document.getElementById('report')?.scrollIntoView({ behavior: 'smooth' }) }}><FileText size={17} /> Division Report</button>
+          <button type="button" onClick={() => { setActiveView('dashboard'); document.getElementById('attention')?.scrollIntoView({ behavior: 'smooth' }) }}><BarChart3 size={17} /> Attention Units</button>
+          <button className={activeView === 'master-data' ? 'active' : undefined} type="button" onClick={() => setActiveView('master-data')}><DatabaseZap size={17} /> Create/Update Master Data</button>
+          <button type="button" onClick={() => setActiveView('master-data')}><ShieldCheck size={17} /> Admin View</button>
         </nav>
         <div className="sidebar-user">
           <span>{userId}</span>
@@ -120,51 +123,71 @@ export function Dashboard({ userId, onSignOut }: DashboardProps) {
       <div className="content-shell">
       <Header lastUpdated={lastUpdated} loading={loading} onRefresh={() => void loadData()} />
       <main>
-        <div className="page-heading">
-          <Breadcrumb
-            division={appliedFilters.division}
-            subDivision={appliedFilters.subDivision}
-            onRegion={() => viewDivision('all')}
-            onDivision={() => setFilters((value) => ({ ...value, subDivision: 'all' }))}
-          />
-          <div>
-            <h2>Dashboard / Indore Region</h2>
-            <p>Report Period: {inputToDdmmyyyy(appliedFilters.fromDate)} to {inputToDdmmyyyy(appliedFilters.toDate)}</p>
-          </div>
-        </div>
-        <div id="filters">
-        <ReportFilters
-          filters={filters}
-          validationMessage={validationMessage}
-          divisions={masterData}
-          onChange={setFilters}
-          onApply={applyFilters}
-          onReset={resetFilters}
-        />
-        </div>
-        {loading && <LoadingSkeleton />}
-        {error && <ErrorState onRetry={() => void loadData()} />}
-        {!loading && !error && dataset && (
+        {activeView === 'dashboard' ? (
           <>
-            {dataset.records.length === 0 ? (
-              <EmptyState />
-            ) : (
+            <div className="page-heading">
+              <Breadcrumb
+                division={appliedFilters.division}
+                subDivision={appliedFilters.subDivision}
+                onRegion={() => viewDivision('all')}
+                onDivision={() => setFilters((value) => ({ ...value, subDivision: 'all' }))}
+              />
+              <div>
+                <h2>Dashboard / Indore Region</h2>
+                <p>Report Period: {inputToDdmmyyyy(appliedFilters.fromDate)} to {inputToDdmmyyyy(appliedFilters.toDate)}</p>
+              </div>
+            </div>
+            <div id="filters">
+            <ReportFilters
+              filters={filters}
+              validationMessage={validationMessage}
+              divisions={masterData}
+              onChange={setFilters}
+              onApply={applyFilters}
+              onReset={resetFilters}
+            />
+            </div>
+            {loading && <LoadingSkeleton />}
+            {error && <ErrorState onRetry={() => void loadData()} />}
+            {!loading && !error && dataset && (
               <>
-                <DataTable
-                  id="report"
-                  title={appliedFilters.division === 'all' ? 'Division Wise Operational Report' : `Sub-Division Wise Operational Report - ${appliedFilters.division}`}
-                  nameLabel={appliedFilters.division === 'all' ? 'Division' : 'Office'}
-                  rows={dataset.divisions}
-                  officeRows={dataset.records}
-                  showAction={appliedFilters.division === 'all'}
-                  onViewDivision={viewDivision}
-                  onExport={exportCurrentView}
-                />
-                <div id="attention">
-                <AttentionPanel divisions={dataset.divisions} />
-                </div>
+                {dataset.records.length === 0 ? (
+                  <EmptyState />
+                ) : (
+                  <>
+                    <DataTable
+                      id="report"
+                      title={appliedFilters.division === 'all' ? 'Division Wise Operational Report' : `Sub-Division Wise Operational Report - ${appliedFilters.division}`}
+                      nameLabel={appliedFilters.division === 'all' ? 'Division' : 'Office'}
+                      rows={dataset.divisions}
+                      officeRows={dataset.records}
+                      showAction={appliedFilters.division === 'all'}
+                      onViewDivision={viewDivision}
+                      onExport={exportCurrentView}
+                    />
+                    <div id="attention">
+                    <AttentionPanel divisions={dataset.divisions} />
+                    </div>
+                  </>
+                )}
               </>
             )}
+          </>
+        ) : (
+          <>
+            <div className="page-heading">
+              <Breadcrumb
+                division="Create/Update Master Data"
+                subDivision="all"
+                onRegion={() => setActiveView('dashboard')}
+                onDivision={() => undefined}
+              />
+              <div>
+                <h2>Admin / Office Master</h2>
+                <p>Replace office master data from an uploaded Office_Master file</p>
+              </div>
+            </div>
+            <MasterDataUpload onUpdated={() => void loadMasterData()} />
           </>
         )}
       </main>
