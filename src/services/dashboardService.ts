@@ -189,7 +189,8 @@ async function fetchRawPayload(fromDate: string, toDate: string): Promise<RawPay
 }
 
 async function fetchDbRecords(fromDate: string, toDate: string): Promise<OfficeRecord[] | null> {
-  if (!supabase) return null
+  const db = supabase
+  if (!db) return null
 
   const [fromDay, fromMonth, fromYear] = fromDate.split('-')
   const [toDay, toMonth, toYear] = toDate.split('-')
@@ -198,38 +199,58 @@ async function fetchDbRecords(fromDate: string, toDate: string): Promise<OfficeR
 
   const masterRecords = await fetchOfficeMaster()
   const officeMaster = new Map(masterRecords.map((record) => [normalizeText(record.office), record]))
-  const { data, error } = await supabase
-    .from('daily_office_transactions')
-    .select(`
-      report_date,
-      office_name,
-      savings_bank_accounts_opened,
-      savings_bank_transactions,
-      pli_rpli_premium,
-      speed_post_articles_booked,
-      parcel_articles_booked
-    `)
-    .gte('report_date', fromDbDate)
-    .lte('report_date', toDbDate)
-    .order('office_name')
+  const data = await fetchAllSupabaseRows<DailyTransactionRow>((from, to) =>
+    db
+      .from('daily_office_transactions')
+      .select(`
+        report_date,
+        office_name,
+        savings_bank_accounts_opened,
+        savings_bank_transactions,
+        pli_rpli_premium,
+        speed_post_articles_booked,
+        parcel_articles_booked
+      `)
+      .gte('report_date', fromDbDate)
+      .lte('report_date', toDbDate)
+      .order('office_name')
+      .range(from, to),
+  )
 
-  if (error) throw error
-  return (data as DailyTransactionRow[])
+  return data
     .map((row) => normalizeDbRecord(row, officeMaster))
     .filter((row) => row.division)
 }
 
-async function fetchOfficeMaster(): Promise<OfficeMasterRecord[]> {
-  if (supabase) {
-    const { data, error } = await supabase
-      .from('office_master')
-      .select('division, sub_division, office_name, office_id')
-      .order('division')
-      .order('sub_division')
-      .order('office_name')
+async function fetchAllSupabaseRows<T>(buildQuery: (from: number, to: number) => PromiseLike<{ data: unknown[] | null; error: unknown }>) {
+  const pageSize = 1000
+  const rows: T[] = []
 
-    if (!error && data && data.length > 0) {
-      return (data as OfficeMasterDbRow[]).map((record) => ({
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await buildQuery(from, from + pageSize - 1)
+    if (error) throw error
+    rows.push(...((data ?? []) as T[]))
+    if (!data || data.length < pageSize) break
+  }
+
+  return rows
+}
+
+async function fetchOfficeMaster(): Promise<OfficeMasterRecord[]> {
+  const db = supabase
+  if (db) {
+    const data = await fetchAllSupabaseRows<OfficeMasterDbRow>((from, to) =>
+      db
+        .from('office_master')
+        .select('division, sub_division, office_name, office_id')
+        .order('division')
+        .order('sub_division')
+        .order('office_name')
+        .range(from, to),
+    )
+
+    if (data.length > 0) {
+      return data.map((record) => ({
         division: record.division,
         subDivision: record.sub_division,
         office: record.office_name,

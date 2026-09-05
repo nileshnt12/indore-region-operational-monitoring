@@ -140,6 +140,29 @@ function uniqueBy(rows, getKey) {
   return Array.from(uniqueRows.values())
 }
 
+async function fetchAllRows(tableName, columns, orderColumns = []) {
+  const pageSize = 1000
+  const rows = []
+
+  for (let from = 0; ; from += pageSize) {
+    let query = supabase
+      .from(tableName)
+      .select(columns)
+      .range(from, from + pageSize - 1)
+
+    for (const column of orderColumns) {
+      query = query.order(column)
+    }
+
+    const { data, error } = await query
+    if (error) throw error
+    rows.push(...(data ?? []))
+    if (!data || data.length < pageSize) break
+  }
+
+  return rows
+}
+
 function parseRows(html) {
   const table = html.match(/<table[^>]+id="example2"[^>]*>([\s\S]*?)<\/table>/i)?.[1] ?? ''
   return [...table.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)]
@@ -161,14 +184,14 @@ function parseRows(html) {
 }
 
 async function loadOfficeMaster() {
-  const { data, error } = await supabase
-    .from('office_master')
-    .select('id, division, sub_division, office_name, office_id')
-    .order('division')
-    .order('sub_division')
-    .order('office_name')
+  const data = await fetchAllRows(
+    'office_master',
+    'id, division, sub_division, office_name, office_id',
+    ['division', 'sub_division', 'office_name'],
+  )
 
-  if (!error && data && data.length > 0) {
+  if (data.length > 0) {
+    console.log(`Loaded ${data.length} office master rows from Supabase.`)
     return data.map((record) => ({
       id: record.id,
       division: record.division,
@@ -180,6 +203,7 @@ async function loadOfficeMaster() {
 
   const file = await fs.readFile(path.join(process.cwd(), 'public', 'data', 'indore-region-master.json'), 'utf8')
   const payload = JSON.parse(file)
+  console.log(`Loaded ${payload.records.length} office master rows from bundled JSON fallback.`)
   return payload.records
 }
 
@@ -268,7 +292,7 @@ function buildDailyRows(masterRecords, misRows, reportDate) {
     })
   }
 
-  return masterRecords.map((office) => {
+  const rows = masterRecords.map((office) => {
     const metrics = misLookup.get(normalizeText(office.office))
     return {
       report_date: reportDate,
@@ -283,6 +307,9 @@ function buildDailyRows(masterRecords, misRows, reportDate) {
       fetched_at: new Date().toISOString(),
     }
   })
+  const matchedRows = rows.filter((row) => row.savings_bank_accounts_opened > 0 || row.savings_bank_transactions > 0).length
+  console.log(`Matched MIS values for ${matchedRows} of ${rows.length} master office rows.`)
+  return rows
 }
 
 const reportDate = getReportDate()
