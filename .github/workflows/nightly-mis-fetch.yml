@@ -33,3 +33,11 @@ jobs:
 
       - name: Fetch MIS report and upsert Supabase
         run: node scripts/fetch-mis-to-supabase.mjs
+
+      - name: Upload mismatch audit workbook
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mis-master-mismatch-audit
+          path: artifacts/*.xlsx
+          if-no-files-found: ignore

@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js'
 import fs from 'node:fs/promises'
 import path from 'node:path'
+import * as XLSX from 'xlsx'
 
 const baseUrl = 'https://mis.cept.gov.in/CBS/CBSReports.aspx'
 const circle = 'Madhya Pradesh Circle'
@@ -140,15 +141,44 @@ function uniqueBy(rows, getKey) {
   return Array.from(uniqueRows.values())
 }
 
-function logSample(title, values, limit = 25) {
-  const uniqueValues = Array.from(new Set(values.filter(Boolean))).sort()
-  console.log(`${title}: ${uniqueValues.length}`)
-  uniqueValues.slice(0, limit).forEach((value, index) => {
-    console.log(`  ${index + 1}. ${value}`)
+function logMismatchNames(title, rows, getName, limit = 100) {
+  const names = Array.from(new Set(rows.map(getName).filter(Boolean))).sort()
+  console.log(`${title}: ${names.length}`)
+  names.slice(0, limit).forEach((name, index) => {
+    console.log(`  ${index + 1}. ${name}`)
   })
-  if (uniqueValues.length > limit) {
-    console.log(`  ... ${uniqueValues.length - limit} more`)
+  if (names.length > limit) {
+    console.log(`  ... ${names.length - limit} more in the Excel audit workbook`)
   }
+}
+
+async function writeMismatchWorkbook(reportDate, misNotInMasterRows, masterNotInMisRows) {
+  const outputDir = path.join(process.cwd(), 'artifacts')
+  const outputPath = path.join(outputDir, `mis-master-mismatch-${reportDate}.xlsx`)
+
+  await fs.mkdir(outputDir, { recursive: true })
+
+  const workbook = XLSX.utils.book_new()
+  const misSheet = XLSX.utils.json_to_sheet(
+    misNotInMasterRows.map((row) => ({
+      'MIS Office Name': row.office_name,
+      'Normalized Office Name': row.normalized_office_name,
+    })),
+  )
+  const masterSheet = XLSX.utils.json_to_sheet(
+    masterNotInMisRows.map((row) => ({
+      'Master Office Name': row.office,
+      Division: row.division,
+      'Sub Division': row.subDivision,
+      'Office ID': row.officeId,
+      'Normalized Office Name': normalizeText(row.office),
+    })),
+  )
+
+  XLSX.utils.book_append_sheet(workbook, misSheet, 'MIS_Not_In_Master')
+  XLSX.utils.book_append_sheet(workbook, masterSheet, 'Master_Not_In_MIS')
+  XLSX.writeFile(workbook, outputPath)
+  console.log(`Mismatch audit workbook created: ${outputPath}`)
 }
 
 async function fetchAllRows(tableName, columns, orderColumns = []) {
@@ -292,7 +322,7 @@ async function fetchAllDivisionReports(misDate) {
   return rows
 }
 
-function buildDailyRows(masterRecords, misRows, reportDate) {
+async function buildDailyRows(masterRecords, misRows, reportDate) {
   const misLookup = new Map()
   for (const row of misRows) {
     if (!row.normalized_office_name) continue
@@ -304,15 +334,10 @@ function buildDailyRows(masterRecords, misRows, reportDate) {
     })
   }
 
-  const masterNameLookup = new Map(masterRecords.map((office) => [normalizeText(office.office), office.office]))
+  const masterNormalizedNames = new Set(masterRecords.map((office) => normalizeText(office.office)).filter(Boolean))
   const uniqueMisRows = uniqueBy(misRows, (row) => row.normalized_office_name)
-  const nonZeroMisRows = uniqueMisRows.filter((row) => row.savings_bank_accounts_opened > 0 || row.savings_bank_transactions > 0)
-  const unmatchedMisOfficeNames = uniqueMisRows
-    .filter((row) => !masterNameLookup.has(row.normalized_office_name))
-    .map((row) => row.office_name)
-  const unmatchedNonZeroMisOfficeNames = nonZeroMisRows
-    .filter((row) => !masterNameLookup.has(row.normalized_office_name))
-    .map((row) => row.office_name)
+  const misNotInMasterRows = uniqueMisRows.filter((row) => !masterNormalizedNames.has(row.normalized_office_name))
+  const masterNotInMisRows = masterRecords.filter((office) => !misLookup.has(normalizeText(office.office)))
 
   const rows = masterRecords.map((office) => {
     const metrics = misLookup.get(normalizeText(office.office))
@@ -329,20 +354,10 @@ function buildDailyRows(masterRecords, misRows, reportDate) {
       fetched_at: new Date().toISOString(),
     }
   })
-  const matchedOfficeNames = rows
-    .filter((row) => row.savings_bank_accounts_opened > 0 || row.savings_bank_transactions > 0)
-    .map((row) => row.office_name)
-  const masterOfficeNamesWithoutMis = rows
-    .filter((row) => !misLookup.has(normalizeText(row.office_name)))
-    .map((row) => row.office_name)
 
-  console.log(`Unique MIS office rows parsed: ${uniqueMisRows.length}`)
-  console.log(`Unique MIS office rows with non-zero savings metrics: ${nonZeroMisRows.length}`)
-  console.log(`Master office rows prepared: ${rows.length}`)
-  console.log(`Master office rows with matched non-zero MIS values: ${matchedOfficeNames.length}`)
-  logSample('MIS office names not found in office_master', unmatchedMisOfficeNames)
-  logSample('Non-zero MIS office names not found in office_master', unmatchedNonZeroMisOfficeNames)
-  logSample('Master office names not returned by MIS', masterOfficeNamesWithoutMis)
+  logMismatchNames('Office names in MIS but not in office_master', misNotInMasterRows, (row) => row.office_name)
+  logMismatchNames('Office names in office_master but not in MIS', masterNotInMisRows, (row) => row.office)
+  await writeMismatchWorkbook(reportDate, misNotInMasterRows, masterNotInMisRows)
   return rows
 }
 
@@ -356,7 +371,7 @@ try {
   runId = await createRun(dbDate)
   const masterRecords = await loadOfficeMaster()
   const misRows = await fetchAllDivisionReports(misDate)
-  const rows = buildDailyRows(masterRecords, misRows, dbDate)
+  const rows = await buildDailyRows(masterRecords, misRows, dbDate)
   recordCount = rows.length
   await upsertTransactions(rows)
   await finishRun(runId, 'success', recordCount)
