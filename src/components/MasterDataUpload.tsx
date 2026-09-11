@@ -34,7 +34,10 @@ export function MasterDataUpload({ onUpdated }: MasterDataUploadProps) {
       if (parsed.missingColumns.length) {
         setMessage(`Missing required columns in ${parsed.sheetName}.`)
       } else {
-        setMessage(`${parsed.rows.length.toLocaleString('en-IN')} valid office rows found.`)
+        const alternateNameCount = parsed.rows.filter((row) => row.alternate_office_name).length
+        setMessage(
+          `${parsed.rows.length.toLocaleString('en-IN')} valid office rows found. ${alternateNameCount.toLocaleString('en-IN')} alternate office names found.`,
+        )
       }
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Unable to read selected file.')
