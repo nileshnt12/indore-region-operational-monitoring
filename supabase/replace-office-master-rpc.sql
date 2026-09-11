@@ -1,3 +1,6 @@
+alter table public.office_master
+add column if not exists alternate_office_name text;
+
 create or replace function public.replace_office_master(rows_payload jsonb)
 returns integer
 language plpgsql
@@ -19,6 +22,7 @@ begin
     sub_divisional_head,
     sub_divisional_head_mobile,
     office_name,
+    alternate_office_name,
     office_id,
     email_id,
     office_type_desc,
@@ -35,6 +39,7 @@ begin
     nullif(trim(row_data.sub_divisional_head), ''),
     nullif(trim(row_data.sub_divisional_head_mobile), ''),
     trim(row_data.office_name),
+    nullif(trim(row_data.alternate_office_name), ''),
     nullif(trim(row_data.office_id), ''),
     nullif(trim(row_data.email_id), ''),
     nullif(trim(row_data.office_type_desc), ''),
@@ -50,6 +55,7 @@ begin
     sub_divisional_head text,
     sub_divisional_head_mobile text,
     office_name text,
+    alternate_office_name text,
     office_id text,
     email_id text,
     office_type_desc text,

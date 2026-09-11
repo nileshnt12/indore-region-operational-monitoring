@@ -105,6 +105,7 @@ export function MasterDataUpload({ onUpdated }: MasterDataUploadProps) {
                   <th>Division</th>
                   <th>Sub Division</th>
                   <th>Office Name</th>
+                  <th>Alternate Office Name</th>
                   <th>office_id</th>
                   <th>pincode</th>
                 </tr>
@@ -117,6 +118,7 @@ export function MasterDataUpload({ onUpdated }: MasterDataUploadProps) {
                     <td>{row.division}</td>
                     <td>{row.sub_division}</td>
                     <td>{row.office_name}</td>
+                    <td>{row.alternate_office_name}</td>
                     <td>{row.office_id}</td>
                     <td>{row.pincode}</td>
                   </tr>

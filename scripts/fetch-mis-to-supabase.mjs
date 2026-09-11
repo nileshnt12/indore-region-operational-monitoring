@@ -165,10 +165,12 @@ async function writeMismatchWorkbook(reportDate, misNotInMasterRows, masterNotIn
   const masterSheet = XLSX.utils.json_to_sheet(
     masterNotInMisRows.map((row) => ({
       'Master Office Name': row.office,
+      'Alternate Office Name': row.alternateOfficeName,
       Division: row.division,
       'Sub Division': row.subDivision,
       'Office ID': row.officeId,
       'Normalized Office Name': normalizeText(row.office),
+      'Normalized Alternate Office Name': normalizeText(row.alternateOfficeName ?? ''),
     })),
   )
 
@@ -225,7 +227,7 @@ function parseRows(html) {
 async function loadOfficeMaster() {
   const data = await fetchAllRows(
     'office_master',
-    'id, division, sub_division, office_name, office_id',
+    'id, division, sub_division, office_name, alternate_office_name, office_id',
     ['division', 'sub_division', 'office_name'],
   )
 
@@ -236,6 +238,7 @@ async function loadOfficeMaster() {
       division: record.division,
       subDivision: record.sub_division,
       office: record.office_name,
+      alternateOfficeName: record.alternate_office_name ?? '',
       officeId: record.office_id ?? '',
     }))
   }
@@ -331,13 +334,19 @@ async function buildDailyRows(masterRecords, misRows, reportDate) {
     })
   }
 
-  const masterNormalizedNames = new Set(masterRecords.map((office) => normalizeText(office.office)).filter(Boolean))
+  const masterNormalizedNames = new Set(
+    masterRecords.flatMap((office) => [normalizeText(office.office), normalizeText(office.alternateOfficeName ?? '')]).filter(Boolean),
+  )
   const uniqueMisRows = uniqueBy(misRows, (row) => row.normalized_office_name)
   const misNotInMasterRows = uniqueMisRows.filter((row) => !masterNormalizedNames.has(row.normalized_office_name))
-  const masterNotInMisRows = masterRecords.filter((office) => !misLookup.has(normalizeText(office.office)))
+  const masterNotInMisRows = masterRecords.filter((office) => {
+    const primaryMatch = misLookup.has(normalizeText(office.office))
+    const alternateMatch = misLookup.has(normalizeText(office.alternateOfficeName ?? ''))
+    return !primaryMatch && !alternateMatch
+  })
 
   const rows = masterRecords.map((office) => {
-    const metrics = misLookup.get(normalizeText(office.office))
+    const metrics = misLookup.get(normalizeText(office.office)) ?? misLookup.get(normalizeText(office.alternateOfficeName ?? ''))
     return {
       report_date: reportDate,
       office_master_id: office.id ?? null,
