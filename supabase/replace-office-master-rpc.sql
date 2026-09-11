@@ -10,7 +10,7 @@ as $$
 declare
   inserted_count integer;
 begin
-  delete from public.office_master;
+  delete from public.office_master where true;
 
   insert into public.office_master (
     circle,
