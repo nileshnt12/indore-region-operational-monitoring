@@ -229,6 +229,46 @@ async function fetchDbRecords(fromDate: string, toDate: string): Promise<OfficeR
 
   const masterRecords = await fetchOfficeMaster()
   const officeMaster = new Map(masterRecords.map((record) => [normalizeText(record.office), record]))
+  const summaryRows = await fetchAllSupabaseRows<DailyTransactionRow>((from, to) =>
+    db
+      .from('daily_office_transactions')
+      .select(`
+        report_date,
+        office_name,
+        savings_bank_accounts_opened,
+        savings_bank_transactions,
+        pli_rpli_premium,
+        speed_post_articles_booked,
+        parcel_articles_booked,
+        source
+      `)
+      .eq('source', 'MIS_REGION_SUMMARY')
+      .gte('report_date', fromDbDate)
+      .lte('report_date', toDbDate)
+      .order('office_name')
+      .range(from, to),
+  )
+
+  if (summaryRows.length > 0) {
+    const rows = Array.from(summaryRows.reduce((byDivision, row) => {
+      const existing = byDivision.get(row.office_name)
+      byDivision.set(row.office_name, {
+        ...row,
+        savings_bank_accounts_opened:
+          (Number(existing?.savings_bank_accounts_opened) || 0) + (Number(row.savings_bank_accounts_opened) || 0),
+        savings_bank_transactions:
+          (Number(existing?.savings_bank_transactions) || 0) + (Number(row.savings_bank_transactions) || 0),
+        pli_rpli_premium:
+          (Number(existing?.pli_rpli_premium) || 0) + (Number(row.pli_rpli_premium) || 0),
+      })
+      return byDivision
+    }, new Map<string, DailyTransactionRow>()).values())
+
+    return rows
+      .map((row) => normalizeDbRecord(row, officeMaster))
+      .filter((row) => row.division)
+  }
+
   const data = await fetchAllSupabaseRows<DailyTransactionRow>((from, to) =>
     db
       .from('daily_office_transactions')
@@ -248,24 +288,7 @@ async function fetchDbRecords(fromDate: string, toDate: string): Promise<OfficeR
       .range(from, to),
   )
 
-  const summaryRows = data.filter((row) => row.source === 'MIS_REGION_SUMMARY')
-  const rows = summaryRows.length > 0
-    ? Array.from(summaryRows.reduce((byDivision, row) => {
-      const existing = byDivision.get(row.office_name)
-      byDivision.set(row.office_name, {
-        ...row,
-        savings_bank_accounts_opened:
-          (Number(existing?.savings_bank_accounts_opened) || 0) + (Number(row.savings_bank_accounts_opened) || 0),
-        savings_bank_transactions:
-          (Number(existing?.savings_bank_transactions) || 0) + (Number(row.savings_bank_transactions) || 0),
-        pli_rpli_premium:
-          (Number(existing?.pli_rpli_premium) || 0) + (Number(row.pli_rpli_premium) || 0),
-      })
-      return byDivision
-    }, new Map<string, DailyTransactionRow>()).values())
-    : data
-
-  return rows
+  return data
     .map((row) => normalizeDbRecord(row, officeMaster))
     .filter((row) => row.division)
 }
