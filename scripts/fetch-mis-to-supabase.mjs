@@ -224,6 +224,22 @@ function parseRows(html) {
     })
 }
 
+function parseSummaryRows(html) {
+  const table = html.match(/<table[^>]+id="example"[^>]*>([\s\S]*?)<\/table>/i)?.[1] ?? ''
+  return [...table.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)]
+    .map((row) => [...row[1].matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi)].map((cell) => stripTags(cell[1])))
+    .filter((cells) => {
+      const first = cells[0] ?? ''
+      return cells.length > 0 && first !== 'Name' && first !== 'RICT Account Open' && first !== 'Total:' && cells.some(Boolean)
+    })
+    .map((cells) => ({
+      division: cells[0] ?? '',
+      savings_bank_accounts_opened: parseNumber(cells[1] ?? ''),
+      savings_bank_transactions: parseNumber(cells[4] ?? ''),
+      total_deposit_amount: parseNumber(cells[5] ?? ''),
+    }))
+}
+
 async function loadOfficeMaster() {
   const data = await fetchAllRows(
     'office_master',
@@ -299,6 +315,13 @@ async function fetchAllDivisionReports(misDate) {
   form.set('__EVENTTARGET', fieldNames.region)
   html = await postForm(form, cookie)
 
+  form = createForm(html, misDate)
+  form.set(fieldNames.circle, circle)
+  form.set(fieldNames.region, region)
+  form.set('__EVENTTARGET', 'ctl00$ContentPlaceHolder1$ctl00')
+  const summaryHtml = await postForm(form, cookie)
+  const summaryRows = parseSummaryRows(summaryHtml)
+
   const rows = []
   for (const division of divisions) {
     form = createForm(html, misDate)
@@ -319,10 +342,10 @@ async function fetchAllDivisionReports(misDate) {
     rows.push(...parseRows(reportHtml))
   }
 
-  return rows
+  return { officeRows: rows, summaryRows }
 }
 
-async function buildDailyRows(masterRecords, misRows, reportDate) {
+async function buildDailyRows(masterRecords, misRows, summaryRows, reportDate) {
   const misLookup = new Map()
   for (const row of misRows) {
     if (!row.normalized_office_name) continue
@@ -332,6 +355,35 @@ async function buildDailyRows(masterRecords, misRows, reportDate) {
       savings_bank_accounts_opened: (existing?.savings_bank_accounts_opened ?? 0) + row.savings_bank_accounts_opened,
       savings_bank_transactions: (existing?.savings_bank_transactions ?? 0) + row.savings_bank_transactions,
     })
+  }
+
+  const totalOfficeMetrics = Array.from(misLookup.values()).reduce(
+    (sum, row) => sum + row.savings_bank_accounts_opened + row.savings_bank_transactions,
+    0,
+  )
+
+  if (totalOfficeMetrics === 0 && summaryRows.length > 0) {
+    const validSummaryRows = summaryRows.filter((row) => row.division && row.division !== 'Total:')
+    const totalSummaryMetrics = validSummaryRows.reduce(
+      (sum, row) => sum + row.savings_bank_accounts_opened + row.savings_bank_transactions + row.total_deposit_amount,
+      0,
+    )
+
+    if (totalSummaryMetrics > 0) {
+      console.log('Office-level MIS rows were blank. Using region division summary rows instead.')
+      return validSummaryRows.map((row) => ({
+        report_date: reportDate,
+        office_master_id: null,
+        office_name: row.division,
+        savings_bank_accounts_opened: row.savings_bank_accounts_opened,
+        savings_bank_transactions: row.savings_bank_transactions,
+        pli_rpli_premium: row.total_deposit_amount,
+        speed_post_articles_booked: 0,
+        parcel_articles_booked: 0,
+        source: 'MIS_REGION_SUMMARY',
+        fetched_at: new Date().toISOString(),
+      }))
+    }
   }
 
   const masterNormalizedNames = new Set(
@@ -376,12 +428,12 @@ let recordCount = 0
 try {
   runId = await createRun(dbDate)
   const masterRecords = await loadOfficeMaster()
-  const misRows = await fetchAllDivisionReports(misDate)
-  const rows = await buildDailyRows(masterRecords, misRows, dbDate)
+  const { officeRows, summaryRows } = await fetchAllDivisionReports(misDate)
+  const rows = await buildDailyRows(masterRecords, officeRows, summaryRows, dbDate)
   recordCount = rows.length
   await upsertTransactions(rows)
   await finishRun(runId, 'success', recordCount)
-  console.log(`Fetched ${misRows.length} MIS rows and stored ${recordCount} master office rows for ${dbDate}.`)
+  console.log(`Fetched ${officeRows.length} office MIS rows, ${summaryRows.length} summary MIS rows, and stored ${recordCount} rows for ${dbDate}.`)
 } catch (error) {
   if (runId) {
     await finishRun(runId, 'failed', recordCount, error instanceof Error ? error.message : String(error))

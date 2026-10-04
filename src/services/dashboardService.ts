@@ -48,6 +48,16 @@ interface DailyTransactionRow {
   parcel_articles_booked: number
 }
 
+const divisionNames = new Set([
+  'Indore City Division',
+  'Indore Moffusil Division',
+  'Khandwa Division',
+  'Mandsaur Division',
+  'Ratlam Division',
+  'Sehore Division',
+  'Ujjain Division',
+])
+
 function toNumber(value: unknown): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : 0
 }
@@ -79,6 +89,25 @@ function normalizeRecord(row: unknown[], officeMaster: Map<string, OfficeMasterR
 }
 
 function normalizeDbRecord(row: DailyTransactionRow, officeMaster: Map<string, OfficeMasterRecord>): OfficeRecord {
+  if (divisionNames.has(row.office_name)) {
+    const savingsBankTransactions = Number(row.savings_bank_transactions) || 0
+    return {
+      circle: 'Madhya Pradesh Circle',
+      region: 'Indore Region',
+      division: row.office_name,
+      subDivision: '',
+      officeName: row.office_name,
+      solId: '',
+      rictAccountOpen: Number(row.savings_bank_accounts_opened) || 0,
+      rictDeposit: savingsBankTransactions,
+      rictWithdrawal: 0,
+      savingsBankTransaction: savingsBankTransactions,
+      totalTransaction: savingsBankTransactions,
+      totalDepositAmount: Number(row.pli_rpli_premium) || 0,
+      totalWithdrawalAmount: 0,
+    }
+  }
+
   const matchedOffice = officeMaster.get(normalizeText(row.office_name))
   const savingsBankTransactions = Number(row.savings_bank_transactions) || 0
   return {
