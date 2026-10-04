@@ -13,6 +13,7 @@ jobs:
     timeout-minutes: 60
     strategy:
       fail-fast: false
+      max-parallel: 1
       matrix:
         report_date:
           - '2026-09-27'

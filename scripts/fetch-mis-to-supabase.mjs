@@ -357,33 +357,26 @@ async function buildDailyRows(masterRecords, misRows, summaryRows, reportDate) {
     })
   }
 
-  const totalOfficeMetrics = Array.from(misLookup.values()).reduce(
-    (sum, row) => sum + row.savings_bank_accounts_opened + row.savings_bank_transactions,
+  const validSummaryRows = summaryRows.filter((row) => row.division && row.division !== 'Total:')
+  const totalSummaryMetrics = validSummaryRows.reduce(
+    (sum, row) => sum + row.savings_bank_accounts_opened + row.savings_bank_transactions + row.total_deposit_amount,
     0,
   )
 
-  if (totalOfficeMetrics === 0 && summaryRows.length > 0) {
-    const validSummaryRows = summaryRows.filter((row) => row.division && row.division !== 'Total:')
-    const totalSummaryMetrics = validSummaryRows.reduce(
-      (sum, row) => sum + row.savings_bank_accounts_opened + row.savings_bank_transactions + row.total_deposit_amount,
-      0,
-    )
-
-    if (totalSummaryMetrics > 0) {
-      console.log('Office-level MIS rows were blank. Using region division summary rows instead.')
-      return validSummaryRows.map((row) => ({
-        report_date: reportDate,
-        office_master_id: null,
-        office_name: row.division,
-        savings_bank_accounts_opened: row.savings_bank_accounts_opened,
-        savings_bank_transactions: row.savings_bank_transactions,
-        pli_rpli_premium: row.total_deposit_amount,
-        speed_post_articles_booked: 0,
-        parcel_articles_booked: 0,
-        source: 'MIS_REGION_SUMMARY',
-        fetched_at: new Date().toISOString(),
-      }))
-    }
+  if (totalSummaryMetrics > 0) {
+    console.log('Using region division summary rows from MIS.')
+    return validSummaryRows.map((row) => ({
+      report_date: reportDate,
+      office_master_id: null,
+      office_name: row.division,
+      savings_bank_accounts_opened: row.savings_bank_accounts_opened,
+      savings_bank_transactions: row.savings_bank_transactions,
+      pli_rpli_premium: row.total_deposit_amount,
+      speed_post_articles_booked: 0,
+      parcel_articles_booked: 0,
+      source: 'MIS_REGION_SUMMARY',
+      fetched_at: new Date().toISOString(),
+    }))
   }
 
   const masterNormalizedNames = new Set(

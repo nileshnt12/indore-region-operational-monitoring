@@ -46,6 +46,7 @@ interface DailyTransactionRow {
   pli_rpli_premium: number | string
   speed_post_articles_booked: number
   parcel_articles_booked: number
+  source: string
 }
 
 const divisionNames = new Set([
@@ -238,7 +239,8 @@ async function fetchDbRecords(fromDate: string, toDate: string): Promise<OfficeR
         savings_bank_transactions,
         pli_rpli_premium,
         speed_post_articles_booked,
-        parcel_articles_booked
+        parcel_articles_booked,
+        source
       `)
       .gte('report_date', fromDbDate)
       .lte('report_date', toDbDate)
@@ -246,7 +248,11 @@ async function fetchDbRecords(fromDate: string, toDate: string): Promise<OfficeR
       .range(from, to),
   )
 
-  return data
+  const rows = data.some((row) => row.source === 'MIS_REGION_SUMMARY')
+    ? data.filter((row) => row.source === 'MIS_REGION_SUMMARY')
+    : data
+
+  return rows
     .map((row) => normalizeDbRecord(row, officeMaster))
     .filter((row) => row.division)
 }
