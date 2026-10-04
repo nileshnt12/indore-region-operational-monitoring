@@ -213,13 +213,11 @@ function parseRows(html) {
     })
     .map((cells) => {
       const officeName = cells[0] ?? ''
-      const rictDeposit = parseNumber(cells[3] ?? '')
-      const rictWithdrawal = parseNumber(cells[4] ?? '')
       return {
         office_name: officeName,
         normalized_office_name: normalizeText(officeName),
         savings_bank_accounts_opened: parseNumber(cells[2] ?? ''),
-        savings_bank_transactions: rictDeposit + rictWithdrawal,
+        savings_bank_transactions: parseNumber(cells[5] ?? ''),
       }
     })
 }
