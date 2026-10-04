@@ -1,0 +1,38 @@
+name: One-time MIS Office Backfill Populated Dates
+
+on:
+  push:
+    paths:
+      - '.github/workflows/one-time-office-backfill-populated.yml'
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      max-parallel: 1
+      fail-fast: false
+      matrix:
+        report_date:
+          - '2026-09-28'
+          - '2026-09-29'
+          - '2026-09-30'
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      REPORT_DATE: ${{ matrix.report_date }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Backfill MIS report and upsert Supabase
+        run: node scripts/fetch-mis-to-supabase.mjs
