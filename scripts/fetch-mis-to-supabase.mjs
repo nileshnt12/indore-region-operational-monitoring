@@ -363,9 +363,10 @@ async function buildDailyRows(masterRecords, misRows, summaryRows, reportDate) {
     0,
   )
 
+  const rows = []
   if (totalSummaryMetrics > 0) {
     console.log('Using region division summary rows from MIS.')
-    return validSummaryRows.map((row) => ({
+    rows.push(...validSummaryRows.map((row) => ({
       report_date: reportDate,
       office_master_id: null,
       office_name: row.division,
@@ -376,7 +377,7 @@ async function buildDailyRows(masterRecords, misRows, summaryRows, reportDate) {
       parcel_articles_booked: 0,
       source: 'MIS_REGION_SUMMARY',
       fetched_at: new Date().toISOString(),
-    }))
+    })))
   }
 
   const masterNormalizedNames = new Set(
@@ -390,7 +391,7 @@ async function buildDailyRows(masterRecords, misRows, summaryRows, reportDate) {
     return !primaryMatch && !alternateMatch
   })
 
-  const rows = masterRecords.map((office) => {
+  rows.push(...masterRecords.map((office) => {
     const metrics = misLookup.get(normalizeText(office.office)) ?? misLookup.get(normalizeText(office.alternateOfficeName ?? ''))
     return {
       report_date: reportDate,
@@ -404,7 +405,7 @@ async function buildDailyRows(masterRecords, misRows, summaryRows, reportDate) {
       source: 'MIS',
       fetched_at: new Date().toISOString(),
     }
-  })
+  }))
 
   logMismatchNames('Office names in MIS but not in office_master', misNotInMasterRows, (row) => row.office_name)
   logMismatchNames('Office names in office_master but not in MIS', masterNotInMisRows, (row) => row.office)

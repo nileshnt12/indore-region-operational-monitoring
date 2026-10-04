@@ -218,7 +218,7 @@ async function fetchRawPayload(fromDate: string, toDate: string): Promise<RawPay
   throw new Error('Unable to load dashboard data')
 }
 
-async function fetchDbRecords(fromDate: string, toDate: string): Promise<OfficeRecord[] | null> {
+async function fetchDbRecords(fromDate: string, toDate: string, filters: FilterState): Promise<OfficeRecord[] | null> {
   const db = supabase
   if (!db) return null
 
@@ -249,7 +249,7 @@ async function fetchDbRecords(fromDate: string, toDate: string): Promise<OfficeR
       .range(from, to),
   )
 
-  if (summaryRows.length > 0) {
+  if (filters.division === 'all' && summaryRows.length > 0) {
     const rows = Array.from(summaryRows.reduce((byDivision, row) => {
       const existing = byDivision.get(row.office_name)
       byDivision.set(row.office_name, {
@@ -289,6 +289,7 @@ async function fetchDbRecords(fromDate: string, toDate: string): Promise<OfficeR
   )
 
   return data
+    .filter((row) => row.source !== 'MIS_REGION_SUMMARY')
     .map((row) => normalizeDbRecord(row, officeMaster))
     .filter((row) => row.division)
 }
@@ -343,7 +344,7 @@ async function loadDataset(filters: FilterState): Promise<DashboardDataset> {
   const cachedDataset = datasetCache.get(cacheKey)
   if (cachedDataset) return cachedDataset
 
-  const dbRecords = await fetchDbRecords(fromDate, toDate)
+  const dbRecords = await fetchDbRecords(fromDate, toDate, filters)
   if (dbRecords) {
     const divisions = Array.from(new Set(dbRecords.map((record) => record.division))).map((division) =>
       summarizeDivision(
