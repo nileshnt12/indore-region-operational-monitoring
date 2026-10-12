@@ -7,12 +7,18 @@ import { EmptyState, ErrorState, LoadingSkeleton } from '../components/StateView
 import { Header } from '../components/Header'
 import { MasterDataUpload } from '../components/MasterDataUpload'
 import { ReportFilters } from '../components/ReportFilters'
-import { getDashboardData, getMasterData } from '../services/dashboardService'
+import { getDashboardData, getLatestReportDate, getMasterData } from '../services/dashboardService'
 import type { DashboardDataset, FilterState } from '../types/dashboard'
-import { formatDateTime, getYesterday, inputToDdmmyyyy, validateDateRange } from '../utils/dateUtils'
+import { formatDateTime, getYesterday, inputToDdmmyyyy, validateAvailableDateRange } from '../utils/dateUtils'
 import { downloadCsv } from '../utils/exportUtils'
 
 const defaultReportDate = getYesterday()
+const defaultFilters: FilterState = {
+  fromDate: defaultReportDate,
+  toDate: defaultReportDate,
+  division: 'all',
+  subDivision: 'all',
+}
 
 interface DashboardProps {
   userId: string
@@ -21,20 +27,19 @@ interface DashboardProps {
 
 export function Dashboard({ userId, onSignOut }: DashboardProps) {
   const [activeView, setActiveView] = useState<'dashboard' | 'master-data'>('dashboard')
-  const [filters, setFilters] = useState<FilterState>({
-    fromDate: defaultReportDate,
-    toDate: defaultReportDate,
-    division: 'all',
-    subDivision: 'all',
-  })
+  const [filters, setFilters] = useState<FilterState>(defaultFilters)
   const [appliedFilters, setAppliedFilters] = useState(filters)
   const [dataset, setDataset] = useState<DashboardDataset | null>(null)
   const [masterData, setMasterData] = useState<Array<{ id: string; name: string; subDivisions: string[] }>>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
   const [lastUpdated, setLastUpdated] = useState(formatDateTime(new Date()))
+  const [latestAvailableDate, setLatestAvailableDate] = useState<string | null>(null)
 
-  const validationMessage = useMemo(() => validateDateRange(filters.fromDate, filters.toDate), [filters])
+  const validationMessage = useMemo(
+    () => validateAvailableDateRange(filters.fromDate, filters.toDate, latestAvailableDate),
+    [filters, latestAvailableDate],
+  )
 
   async function loadMasterData() {
     try {
@@ -63,8 +68,23 @@ export function Dashboard({ userId, onSignOut }: DashboardProps) {
 
   useEffect(() => {
     document.title = 'Indore Region Operational Monitoring | India Post'
-    void loadMasterData()
-    void loadData(filters)
+    async function initializeDashboard() {
+      void loadMasterData()
+      try {
+        const latestDate = await getLatestReportDate()
+        setLatestAvailableDate(latestDate)
+        const initialFilters = latestDate
+          ? { fromDate: latestDate, toDate: latestDate, division: 'all', subDivision: 'all' }
+          : defaultFilters
+        setFilters(initialFilters)
+        setAppliedFilters(initialFilters)
+        await loadData(initialFilters)
+      } catch (err) {
+        console.error(err)
+        await loadData(defaultFilters)
+      }
+    }
+    void initializeDashboard()
   }, [])
 
   function applyFilters() {
@@ -74,7 +94,8 @@ export function Dashboard({ userId, onSignOut }: DashboardProps) {
   }
 
   function resetFilters() {
-    const next = { fromDate: defaultReportDate, toDate: defaultReportDate, division: 'all', subDivision: 'all' }
+    const reportDate = latestAvailableDate ?? defaultReportDate
+    const next = { fromDate: reportDate, toDate: reportDate, division: 'all', subDivision: 'all' }
     setFilters(next)
     setAppliedFilters(next)
     void loadData(next)
@@ -142,6 +163,7 @@ export function Dashboard({ userId, onSignOut }: DashboardProps) {
               filters={filters}
               validationMessage={validationMessage}
               divisions={masterData}
+              latestAvailableDate={latestAvailableDate}
               onChange={setFilters}
               onApply={applyFilters}
               onReset={resetFilters}

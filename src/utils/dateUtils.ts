@@ -46,3 +46,12 @@ export function validateDateRange(fromDate: string, toDate: string): string | nu
   if (fromDate > toDate) return 'From Date cannot be greater than To Date.'
   return null
 }
+
+export function validateAvailableDateRange(fromDate: string, toDate: string, latestAvailableDate?: string | null): string | null {
+  const rangeError = validateDateRange(fromDate, toDate)
+  if (rangeError) return rangeError
+  if (latestAvailableDate && toDate > latestAvailableDate) {
+    return `Data is available up to ${formatDisplayDate(latestAvailableDate)} only.`
+  }
+  return null
+}

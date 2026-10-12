@@ -205,6 +205,21 @@ function buildTrend(records: OfficeRecord[], date: string): TrendPoint[] {
 
 const datasetCache = new Map<string, DashboardDataset>()
 
+export async function getLatestReportDate(): Promise<string | null> {
+  const db = supabase
+  if (!db) return null
+
+  const { data, error } = await db
+    .from('daily_office_transactions')
+    .select('report_date')
+    .eq('source', 'MIS_REGION_SUMMARY')
+    .order('report_date', { ascending: false })
+    .limit(1)
+
+  if (error) throw error
+  return data?.[0]?.report_date ?? null
+}
+
 async function fetchRawPayload(fromDate: string, toDate: string): Promise<RawPayload> {
   const params = new URLSearchParams({ fromDate, toDate })
   const response = await fetch(`/api/mis-cbs?${params.toString()}`)
