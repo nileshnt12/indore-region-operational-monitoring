@@ -11,13 +11,12 @@ interface Props {
   filters: FilterState
   validationMessage: string | null
   divisions: MasterDivision[]
-  latestAvailableDate: string | null
   onChange: (filters: FilterState) => void
   onApply: () => void
   onReset: () => void
 }
 
-export function ReportFilters({ filters, validationMessage, divisions, latestAvailableDate, onChange, onApply, onReset }: Props) {
+export function ReportFilters({ filters, validationMessage, divisions, onChange, onApply, onReset }: Props) {
   const selectedDivision = divisions.find((division) => division.name === filters.division)
   const subDivisions = selectedDivision?.subDivisions ?? []
 
@@ -35,7 +34,6 @@ export function ReportFilters({ filters, validationMessage, divisions, latestAva
           <input
             type="date"
             required
-            max={latestAvailableDate ?? undefined}
             value={filters.fromDate}
             onChange={(event) => onChange({ ...filters, fromDate: event.target.value })}
           />
@@ -45,7 +43,6 @@ export function ReportFilters({ filters, validationMessage, divisions, latestAva
           <input
             type="date"
             required
-            max={latestAvailableDate ?? undefined}
             value={filters.toDate}
             onChange={(event) => onChange({ ...filters, toDate: event.target.value })}
           />

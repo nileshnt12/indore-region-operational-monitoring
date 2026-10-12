@@ -163,7 +163,6 @@ export function Dashboard({ userId, onSignOut }: DashboardProps) {
               filters={filters}
               validationMessage={validationMessage}
               divisions={masterData}
-              latestAvailableDate={latestAvailableDate}
               onChange={setFilters}
               onApply={applyFilters}
               onReset={resetFilters}
