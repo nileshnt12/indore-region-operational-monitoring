@@ -82,7 +82,7 @@ async function getReportDates() {
 
   const latestStoredDate = data?.[0]?.report_date
   const startDate = latestStoredDate ? addUtcDays(parseDbDate(latestStoredDate), 1) : yesterdayIst
-  if (startDate > yesterdayIst) return [yesterdayIst]
+  if (startDate > yesterdayIst) return []
 
   const dates = []
   for (let date = startDate; date <= yesterdayIst && dates.length < 31; date = addUtcDays(date, 1)) {
@@ -461,7 +461,7 @@ function hasPublishedMisData(officeRows, summaryRows) {
   return officeMetrics > 0 || summaryMetrics > 0
 }
 
-async function fetchAndStoreDate(reportDate, masterRecords) {
+async function fetchAndStoreDate(reportDate, masterRecords, pruneExistingRows = false) {
   const misDate = formatDateForMis(reportDate)
   const dbDate = formatDateForDb(reportDate)
   let runId
@@ -469,9 +469,11 @@ async function fetchAndStoreDate(reportDate, masterRecords) {
 
   try {
     runId = await createRun(dbDate)
+    if (pruneExistingRows) {
+      await deleteTransactionsForDate(dbDate)
+    }
     const { officeRows, summaryRows } = await fetchAllDivisionReports(misDate)
     if (!hasPublishedMisData(officeRows, summaryRows)) {
-      await deleteTransactionsForDate(dbDate)
       await finishRun(runId, 'success', 0, 'MIS data is not published for this date yet.')
       console.log(`No published MIS data found for ${dbDate}; skipped daily transaction upsert.`)
       return
@@ -493,5 +495,9 @@ async function fetchAndStoreDate(reportDate, masterRecords) {
 const reportDates = await getReportDates()
 const masterRecords = await loadOfficeMaster()
 for (const reportDate of reportDates) {
-  await fetchAndStoreDate(reportDate, masterRecords)
+  try {
+    await fetchAndStoreDate(reportDate, masterRecords, !process.env.REPORT_DATE)
+  } catch (error) {
+    console.error(`Unable to fetch ${formatDateForDb(reportDate)}:`, error)
+  }
 }
