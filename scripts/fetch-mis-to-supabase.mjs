@@ -49,17 +49,46 @@ function formatDateForDb(date) {
   return `${date.getUTCFullYear()}-${month}-${day}`
 }
 
-function getReportDate() {
-  const manualDate = process.env.REPORT_DATE
-  if (manualDate) {
-    const [year, month, day] = manualDate.split('-').map(Number)
-    return new Date(Date.UTC(year, month - 1, day))
-  }
+function parseDbDate(value) {
+  const [year, month, day] = value.split('-').map(Number)
+  return new Date(Date.UTC(year, month - 1, day))
+}
 
+function addUtcDays(date, days) {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate() + days))
+}
+
+function getYesterdayIst() {
   const now = new Date()
   const istNow = new Date(now.getTime() + 5.5 * 60 * 60 * 1000)
-  const yesterdayIst = new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), istNow.getUTCDate() - 1))
-  return yesterdayIst
+  return new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), istNow.getUTCDate() - 1))
+}
+
+async function getReportDates() {
+  const manualDate = process.env.REPORT_DATE
+  if (manualDate) {
+    return [parseDbDate(manualDate)]
+  }
+
+  const yesterdayIst = getYesterdayIst()
+  const { data, error } = await supabase
+    .from('daily_office_transactions')
+    .select('report_date')
+    .eq('source', 'MIS_REGION_SUMMARY')
+    .order('report_date', { ascending: false })
+    .limit(1)
+
+  if (error) throw error
+
+  const latestStoredDate = data?.[0]?.report_date
+  const startDate = latestStoredDate ? addUtcDays(parseDbDate(latestStoredDate), 1) : yesterdayIst
+  if (startDate > yesterdayIst) return [yesterdayIst]
+
+  const dates = []
+  for (let date = startDate; date <= yesterdayIst && dates.length < 31; date = addUtcDays(date, 1)) {
+    dates.push(date)
+  }
+  return dates
 }
 
 function decodeHtml(value) {
@@ -274,6 +303,15 @@ async function upsertTransactions(rows) {
   }
 }
 
+async function deleteTransactionsForDate(reportDate) {
+  const { error } = await supabase
+    .from('daily_office_transactions')
+    .delete()
+    .eq('report_date', reportDate)
+    .in('source', ['MIS', 'MIS_REGION_SUMMARY'])
+  if (error) throw error
+}
+
 async function createRun(reportDate) {
   const { data, error } = await supabase
     .from('mis_fetch_runs')
@@ -411,24 +449,49 @@ async function buildDailyRows(masterRecords, misRows, summaryRows, reportDate) {
   return rows
 }
 
-const reportDate = getReportDate()
-const misDate = formatDateForMis(reportDate)
-const dbDate = formatDateForDb(reportDate)
-let runId
-let recordCount = 0
+function hasPublishedMisData(officeRows, summaryRows) {
+  const officeMetrics = officeRows.reduce(
+    (sum, row) => sum + row.savings_bank_accounts_opened + row.savings_bank_transactions,
+    0,
+  )
+  const summaryMetrics = summaryRows.reduce(
+    (sum, row) => sum + row.savings_bank_accounts_opened + row.savings_bank_transactions + row.total_deposit_amount,
+    0,
+  )
+  return officeMetrics > 0 || summaryMetrics > 0
+}
 
-try {
-  runId = await createRun(dbDate)
-  const masterRecords = await loadOfficeMaster()
-  const { officeRows, summaryRows } = await fetchAllDivisionReports(misDate)
-  const rows = await buildDailyRows(masterRecords, officeRows, summaryRows, dbDate)
-  recordCount = rows.length
-  await upsertTransactions(rows)
-  await finishRun(runId, 'success', recordCount)
-  console.log(`Fetched ${officeRows.length} office MIS rows, ${summaryRows.length} summary MIS rows, and stored ${recordCount} rows for ${dbDate}.`)
-} catch (error) {
-  if (runId) {
-    await finishRun(runId, 'failed', recordCount, error instanceof Error ? error.message : String(error))
+async function fetchAndStoreDate(reportDate, masterRecords) {
+  const misDate = formatDateForMis(reportDate)
+  const dbDate = formatDateForDb(reportDate)
+  let runId
+  let recordCount = 0
+
+  try {
+    runId = await createRun(dbDate)
+    const { officeRows, summaryRows } = await fetchAllDivisionReports(misDate)
+    if (!hasPublishedMisData(officeRows, summaryRows)) {
+      await deleteTransactionsForDate(dbDate)
+      await finishRun(runId, 'success', 0, 'MIS data is not published for this date yet.')
+      console.log(`No published MIS data found for ${dbDate}; skipped daily transaction upsert.`)
+      return
+    }
+
+    const rows = await buildDailyRows(masterRecords, officeRows, summaryRows, dbDate)
+    recordCount = rows.length
+    await upsertTransactions(rows)
+    await finishRun(runId, 'success', recordCount)
+    console.log(`Fetched ${officeRows.length} office MIS rows, ${summaryRows.length} summary MIS rows, and stored ${recordCount} rows for ${dbDate}.`)
+  } catch (error) {
+    if (runId) {
+      await finishRun(runId, 'failed', recordCount, error instanceof Error ? error.message : String(error))
+    }
+    throw error
   }
-  throw error
+}
+
+const reportDates = await getReportDates()
+const masterRecords = await loadOfficeMaster()
+for (const reportDate of reportDates) {
+  await fetchAndStoreDate(reportDate, masterRecords)
 }

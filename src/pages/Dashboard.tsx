@@ -9,7 +9,7 @@ import { MasterDataUpload } from '../components/MasterDataUpload'
 import { ReportFilters } from '../components/ReportFilters'
 import { getDashboardData, getLatestReportDate, getMasterData } from '../services/dashboardService'
 import type { DashboardDataset, FilterState } from '../types/dashboard'
-import { formatDateTime, getYesterday, inputToDdmmyyyy, validateAvailableDateRange } from '../utils/dateUtils'
+import { formatDateTime, getYesterday, inputToDdmmyyyy, validateDateRange } from '../utils/dateUtils'
 import { downloadCsv } from '../utils/exportUtils'
 
 const defaultReportDate = getYesterday()
@@ -36,10 +36,7 @@ export function Dashboard({ userId, onSignOut }: DashboardProps) {
   const [lastUpdated, setLastUpdated] = useState(formatDateTime(new Date()))
   const [latestAvailableDate, setLatestAvailableDate] = useState<string | null>(null)
 
-  const validationMessage = useMemo(
-    () => validateAvailableDateRange(filters.fromDate, filters.toDate, latestAvailableDate),
-    [filters, latestAvailableDate],
-  )
+  const validationMessage = useMemo(() => validateDateRange(filters.fromDate, filters.toDate), [filters])
 
   async function loadMasterData() {
     try {
